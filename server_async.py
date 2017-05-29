@@ -22,33 +22,37 @@ def file_to_data(file_path):
         data=myfile.read().replace('\n', '')
     return data
 
-# packet object for file transfer (in progress)
-# ||packet_id||timestamp||destination||filepath||
-class DataPacket():
+# ********** OUTGOING PACKET PROTOCOLS **********
+# (Prefix) (Parameters)
+# MSG     | [message text]
+# CMD     | [command prompt}]
+# FTREQ   | [filename, filesize]
+# BEG     | [filename, number of fragments]
+# DATA    | [filename, sequence id, data]
+# END     | [filename, number of sent fragments]
+# ***********************************************
 
-    def __init__(self, packet_id, destination, data):
-        self.packet_id = packet_id
-        self.timestamp = time.time()
-        self.destination = destination
-        self.data = data
+# ********** INCOMING PACKET PROTOCOLS **********
+# (Prefix) (Parameters)
+# ACC     | [filename, max data per fragment]
+# FACK    | [filename]
+# ***********************************************
+
+
+class Packet(object):
+    def __init__(self, prefix, params=[], *args):
+        self.prefix = prefix
+        self.params = params
 
     def __str__(self):
-        msg_form = '||'
-        # packet ID
-        msg_form += str(self.packet_id)
-        msg_form += '||'
-        # timestamp
-        msg_form += str(self.timestamp)
-        msg_form += '||'
-        # dest
-        if self.destination or self.destination != None:
-            msg_form += str(self.destination)
-            msg_form += '||'
-        # data
-        if self.data or self.data != None:
-            msg_form += str(self.data)
-            msg_form += '||'
+        msg_form = ']||['
+        msg_form += self.prefix
+        msg_form += ']||['
+        for x in range(0,len(self.params)):
+            msg_form += str(self.params[x])
+            msg_form += ']||['
         return msg_form
+
 
 # remote client socket
 class RemoteClient(asyncore.dispatcher):
@@ -63,7 +67,7 @@ class RemoteClient(asyncore.dispatcher):
 
     def handle_read(self):
         client_message = self.recv(MAX_MESSAGE_LENGTH)
-        self.host.broadcast(client_message)
+        self.host.broadcast_message(client_message)
 
     def handle_write(self):
         if not self.outbox:
@@ -122,17 +126,22 @@ class Host(asyncore.dispatcher):
         self.log.info('Received message: %s', self.read())
 
     # broadcast a message/command to all client nodes
-    def broadcast(self, message):
-        self.log.info('Broadcasting message: %s', message)
+    def broadcast_message(self, message):
+        packet = Packet('MSG',[message])
+        self.log.info('Broadcasting message: %s', packet)
         for remote_client in self.remote_clients:
-            remote_client.say(message)
+            remote_client.say(packet)
+
+    def broadcast_command(self, command):
+        packet = Packet('CMD',[command])
+        self.log.info('Broadcasting command: %s', packet)
+        for remote_client in self.remote_clients:
+            remote_client.say(packet)
 
     # file transfer (in progress)
     def transfer(self, recipient, file_path):
-        self.log.info('Transferring data')
-        ###### CHANGE TO DYNAMIC REMOTE CLIENT ******
-        packet = str(DataPacket(88, recipient, file_path))
-        self.remote_clients[0].say(packet)
+        logging.info('transfer not ready! no thanks!')
+    #    self.remote_clients[0].say(packet)
 
 # command and control
 def manual_commands(host):
@@ -148,25 +157,23 @@ def manual_commands(host):
             if cmd == 'help':
                 logging.info("broadcast <message>")
                 logging.info("cmdall <prompt>")
-                logging.info("transfer <recipient> <file_path>")
+                #logging.info("transfer <recipient> <file_path>")
                 logging.info("clients")
                 logging.info("quit")
             # enter broadcast <messsage> to send a message to all clients
             if re.match(r'^broadcast [\w. ]+$', cmd) is not None:
                 message = str(re.match(r'^(broadcast) (.+)$', cmd).group(2))
-                host.broadcast(message)
+                host.broadcast_message(message)
             # enter cmdall <prompt> to send a command to be run on all clients
             if re.match(r'^cmdall [\w.\-\\+\- ]+$', cmd) is not None:
-                prompt = '**'
                 prompt += str(re.match(r'^(cmdall) (.+)$', cmd).group(2))
-                prompt += '**'
-                host.broadcast(prompt)
+                host.broadcast_command(prompt)
             # TRANSFER NOT READY
             if 'transfer' in cmd:
                 groups = cmd.split(' ')
                 recipient = groups[1]
                 file_path = groups[2]
-                host.transfer(recipient, file_path)
+                #host.transfer(recipient, file_path)
             # enter clients to view list of client nodes
             if cmd == 'clients':
                 logging.info("Clients: " + host.print_clients())
